@@ -1,0 +1,64 @@
+-- ============================================================================
+-- OPTIONAL demo data template — NOT a migration, never run automatically.
+-- ============================================================================
+--
+-- This file is intentionally commented out. It is here for local/staging demos
+-- only. Fictional pharmacies must always be labelled `is_demo = true` and must
+-- never be presented as verified real-world businesses or real stock.
+--
+-- How to use it:
+--   1. Create a demo owner account through the app (or Auth dashboard) with the
+--      role `pharmacy_owner`, and copy its auth user UUID.
+--   2. Replace every occurrence of PASTE_DEMO_OWNER_UUID below.
+--   3. Run only in a throwaway/demo project, never in production.
+--   4. Remove the `--` comment prefixes from the statements you want to run.
+--
+-- The demo pharmacy is still validated against the Tamil Nadu polygon and the
+-- 38-district list by the same database triggers as real pharmacies.
+--
+-- ---------------------------------------------------------------------------
+-- insert into public.pharmacies (
+--   owner_id, name, owner_name, address, area, district, pin_code, phone,
+--   latitude, longitude, opening_hours, is_open_now, is_24_hours, services,
+--   is_approved, is_demo
+-- )
+-- values (
+--   'PASTE_DEMO_OWNER_UUID',
+--   'DEMO — Sample Pharmacy (fictional)',
+--   'Demo Owner',
+--   'Sample address for demonstration only',
+--   'Demo Area',
+--   'Chennai',
+--   '600001',
+--   '+91 90000 00000',
+--   13.0827,
+--   80.2707,
+--   '9:00 AM - 9:00 PM',
+--   true,
+--   false,
+--   array['Delivery', '24/7 Service'],
+--   true,
+--   true
+-- )
+-- on conflict (owner_id) do nothing;
+--
+-- ---------------------------------------------------------------------------
+-- Attach demo stock to the shared seeded catalogue. Adjust the medicine lookup
+-- if your catalogue differs. Quantities are fictional sample values.
+--
+-- insert into public.inventory (pharmacy_id, medicine_id, stock_quantity, price)
+-- select p.id, m.id, v.quantity, v.price
+--   from public.pharmacies p
+--   cross join (
+--     values
+--       ('paracetamol',  '650mg', 40, '₹34'),
+--       ('cetirizine',   '10mg',  8,  '₹22'),
+--       ('omeprazole',   '20mg',  0,  '₹48')
+--   ) as v(medicine_name, medicine_strength, quantity, price)
+--   join public.medicines m
+--     on lower(btrim(m.name)) = lower(btrim(v.medicine_name))
+--    and lower(btrim(coalesce(m.strength, ''))) = lower(btrim(v.medicine_strength))
+--  where p.owner_id = 'PASTE_DEMO_OWNER_UUID'
+--    and p.is_demo = true
+-- on conflict (pharmacy_id, medicine_id) do nothing;
+-- ---------------------------------------------------------------------------

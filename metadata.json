@@ -1,0 +1,6 @@
+{
+  "name": "MediFind – Pharmacy Finder & Medicine Search",
+  "description": "Discover pharmacies near you across Tamil Nadu, search for medicines, and view pharmacy hours, contact details, and locations on an interactive map.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
