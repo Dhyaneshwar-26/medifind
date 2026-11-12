@@ -1,7 +1,19 @@
 import React from 'react';
-import { Pharmacy, PharmacyFilter, SortOption } from '../types/pharmacy';
+import {
+  Pharmacy,
+  PharmacyFilter,
+  SortOption,
+  PharmacyAdvancedFilters,
+} from '../types/pharmacy';
 import { PharmacyCard } from './PharmacyCard';
-import { ArrowUpDown, X, SearchX, Sparkles } from 'lucide-react';
+import { ArrowUpDown, X, SearchX, Sparkles, SlidersHorizontal, RotateCcw } from 'lucide-react';
+
+interface FilterOptions {
+  districts: string[];
+  brands: string[];
+  strengths: string[];
+  dosageForms: string[];
+}
 
 interface PharmacyListProps {
   pharmacies: Pharmacy[];
@@ -12,11 +24,21 @@ interface PharmacyListProps {
   onFilterChange: (filter: PharmacyFilter) => void;
   activeSort: SortOption;
   onSortChange: (sort: SortOption) => void;
+  advancedFilters: PharmacyAdvancedFilters;
+  onAdvancedFiltersChange: (filters: PharmacyAdvancedFilters) => void;
+  filterOptions: FilterOptions;
+  onResetFilters: () => void;
   selectedPharmacyId: string | null;
   onSelectPharmacyOnMap: (pharmacy: Pharmacy) => void;
   onViewDetails: (pharmacy: Pharmacy) => void;
   onQuickSearch: (query: string) => void;
 }
+
+const selectClass =
+  'w-full px-2.5 py-1.5 bg-[#F1FAF6] dark:bg-[#11231D] border border-emerald-900/10 dark:border-[#224538] rounded-xl text-[11px] font-bold text-[#20332D] dark:text-[#E5F4EE] focus:outline-none focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B] cursor-pointer truncate';
+
+const labelClass =
+  'block text-[10px] font-extrabold uppercase tracking-wider text-[#20332D]/55 dark:text-[#E5F4EE]/55 mb-1';
 
 export const PharmacyList: React.FC<PharmacyListProps> = ({
   pharmacies,
@@ -27,11 +49,34 @@ export const PharmacyList: React.FC<PharmacyListProps> = ({
   onFilterChange,
   activeSort,
   onSortChange,
+  advancedFilters,
+  onAdvancedFiltersChange,
+  filterOptions,
+  onResetFilters,
   selectedPharmacyId,
   onSelectPharmacyOnMap,
   onViewDetails,
   onQuickSearch,
 }) => {
+  const [showFilters, setShowFilters] = React.useState(false);
+
+  const update = <K extends keyof PharmacyAdvancedFilters>(
+    key: K,
+    value: PharmacyAdvancedFilters[K]
+  ) => {
+    onAdvancedFiltersChange({ ...advancedFilters, [key]: value });
+  };
+
+  const activeFilterCount = [
+    advancedFilters.district !== 'all',
+    advancedFilters.maxDistanceKm > 0,
+    advancedFilters.brand !== 'all',
+    advancedFilters.strength !== 'all',
+    advancedFilters.dosageForm !== 'all',
+    advancedFilters.availability !== 'all',
+    advancedFilters.lowStockOnly,
+  ].filter(Boolean).length;
+
   return (
     <div className="flex flex-col h-full space-y-4">
       
@@ -119,11 +164,154 @@ export const PharmacyList: React.FC<PharmacyListProps> = ({
               className="px-3 py-1.5 bg-[#F1FAF6] dark:bg-[#11231D] border border-emerald-900/10 dark:border-[#224538] rounded-xl text-xs font-bold text-[#20332D] dark:text-[#E5F4EE] focus:outline-none focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B] cursor-pointer"
             >
               <option value="distance">Distance (Closest)</option>
+              <option value="recent">Recently Updated Stock</option>
+              <option value="available">Available Medicines</option>
               <option value="rating">Highest Rated</option>
               <option value="name">Pharmacy Name (A–Z)</option>
             </select>
           </div>
         </div>
+
+        {/* Advanced filters toggle */}
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-emerald-900/5 dark:border-[#224538]">
+          <button
+            onClick={() => setShowFilters((current) => !current)}
+            aria-expanded={showFilters}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold bg-[#F1FAF6] dark:bg-[#11231D] border border-emerald-900/10 dark:border-[#224538] text-[#20332D] dark:text-[#E5F4EE] hover:text-[#087F5B] dark:hover:text-[#34D399] transition-all cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Medicine Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#087F5B] text-white text-[10px] font-extrabold flex items-center justify-center tabular-nums">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+
+          {(activeFilterCount > 0 || searchQuery) && (
+            <button
+              onClick={onResetFilters}
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-[#087F5B] dark:text-[#34D399] hover:underline cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset all</span>
+            </button>
+          )}
+        </div>
+
+        {showFilters && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 rounded-2xl bg-[#F1FAF6]/60 dark:bg-[#11231D]/60 border border-emerald-900/5 dark:border-[#224538] p-3">
+            <div>
+              <label className={labelClass} htmlFor="filter-district">District</label>
+              <select
+                id="filter-district"
+                value={advancedFilters.district}
+                onChange={(e) => update('district', e.target.value)}
+                className={selectClass}
+              >
+                <option value="all">All districts</option>
+                {filterOptions.districts.map((district) => (
+                  <option key={district} value={district}>{district}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="filter-distance">Nearby distance</label>
+              <select
+                id="filter-distance"
+                value={advancedFilters.maxDistanceKm}
+                onChange={(e) => update('maxDistanceKm', Number(e.target.value))}
+                className={selectClass}
+              >
+                <option value={0}>Any distance</option>
+                <option value={5}>Within 5 km</option>
+                <option value={10}>Within 10 km</option>
+                <option value={25}>Within 25 km</option>
+                <option value={50}>Within 50 km</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="filter-brand">Brand</label>
+              <select
+                id="filter-brand"
+                value={advancedFilters.brand}
+                onChange={(e) => update('brand', e.target.value)}
+                className={selectClass}
+              >
+                <option value="all">All brands</option>
+                {filterOptions.brands.map((brand) => (
+                  <option key={brand} value={brand}>{brand}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="filter-strength">Strength</label>
+              <select
+                id="filter-strength"
+                value={advancedFilters.strength}
+                onChange={(e) => update('strength', e.target.value)}
+                className={selectClass}
+              >
+                <option value="all">All strengths</option>
+                {filterOptions.strengths.map((strength) => (
+                  <option key={strength} value={strength}>{strength}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="filter-dosage">Dosage form</label>
+              <select
+                id="filter-dosage"
+                value={advancedFilters.dosageForm}
+                onChange={(e) => update('dosageForm', e.target.value)}
+                className={selectClass}
+              >
+                <option value="all">All forms</option>
+                {filterOptions.dosageForms.map((form) => (
+                  <option key={form} value={form}>{form}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="filter-availability">Availability</label>
+              <select
+                id="filter-availability"
+                value={advancedFilters.availability}
+                onChange={(e) =>
+                  update(
+                    'availability',
+                    e.target.value as PharmacyAdvancedFilters['availability']
+                  )
+                }
+                className={selectClass}
+              >
+                <option value="all">Any availability</option>
+                <option value="in_stock">In stock</option>
+                <option value="low_stock">Low stock</option>
+                <option value="out_of_stock">Out of stock</option>
+              </select>
+            </div>
+
+            <div className="col-span-2 sm:col-span-1 flex items-end">
+              <label className="flex items-center gap-2 px-3 py-2 w-full rounded-xl bg-white dark:bg-[#162C24] border border-emerald-900/10 dark:border-[#224538] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={advancedFilters.lowStockOnly}
+                  onChange={(e) => update('lowStockOnly', e.target.checked)}
+                  className="rounded text-[#087F5B] focus:ring-[#087F5B]"
+                />
+                <span className="text-[11px] font-bold text-[#20332D] dark:text-[#E5F4EE]">
+                  Low stock only
+                </span>
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Results Counter & Catalog Tag */}
         <div className="flex items-center justify-between text-xs text-[#20332D]/70 dark:text-[#E5F4EE]/70 pt-2 border-t border-emerald-900/5 dark:border-[#224538]">
@@ -164,7 +352,7 @@ export const PharmacyList: React.FC<PharmacyListProps> = ({
             </h4>
             <p className="text-xs sm:text-sm text-[#20332D]/70 dark:text-[#E5F4EE]/70 max-w-md mx-auto leading-relaxed">
               {searchQuery
-                ? `No registered pharmacy in Tamil Nadu currently lists "${searchQuery}" in their live inventory.`
+                ? `No pharmacies currently report "${searchQuery}" in stock for the selected filters.`
                 : 'No pharmacies match the selected filters. Try switching filters or resetting your query.'}
             </p>
           </div>
@@ -190,7 +378,7 @@ export const PharmacyList: React.FC<PharmacyListProps> = ({
 
           <div className="pt-3">
             <button
-              onClick={onClearSearch}
+              onClick={onResetFilters}
               className="px-6 py-2.5 text-xs font-bold text-white bg-[#087F5B] hover:bg-[#076B4D] rounded-xl transition-all cursor-pointer shadow-sm hover:scale-105"
             >
               Reset All Filters &amp; Search

@@ -1,10 +1,12 @@
-import React, { useEffect } from 'react';
-import { 
-  X, MapPin, Clock, Phone, Navigation, ShieldCheck, 
-  AlertTriangle, Pill, CheckCircle2, Star, ExternalLink 
+import React, { useEffect, useState } from 'react';
+import {
+  X, MapPin, Clock, Phone, Navigation, ShieldCheck,
+  AlertTriangle, Pill, CheckCircle2, Star, Loader2
 } from 'lucide-react';
 import { Pharmacy } from '../types/pharmacy';
-import { formatDistance, estimateTravelTime } from '../utils/distance';
+import { formatDistance } from '../utils/distance';
+import { openDirectionsToCoordinates } from '../utils/directions';
+import { formatExpiryDate, formatRelativeTime } from '../utils/format';
 
 interface PharmacyDetailsModalProps {
   pharmacy: Pharmacy | null;
@@ -28,12 +30,34 @@ export const PharmacyDetailsModal: React.FC<PharmacyDetailsModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  // Directions state. Google Maps always receives this pharmacy's saved coordinates.
+  const [directionsError, setDirectionsError] = useState<string | null>(null);
+  const [isOpeningDirections, setIsOpeningDirections] = useState(false);
+
+  // Reset feedback whenever a different pharmacy is opened.
+  useEffect(() => {
+    setDirectionsError(null);
+    setIsOpeningDirections(false);
+  }, [pharmacy?.id]);
+
+  const handleDirections = async () => {
+    if (!pharmacy || isOpeningDirections) return;
+    setDirectionsError(null);
+    setIsOpeningDirections(true);
+    try {
+      const result = await openDirectionsToCoordinates(pharmacy.coordinates);
+      if (!result.ok) {
+        setDirectionsError(result.error || 'Could not open directions for this pharmacy.');
+      }
+    } finally {
+      setIsOpeningDirections(false);
+    }
+  };
+
   if (!pharmacy) return null;
 
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${pharmacy.coordinates.lat},${pharmacy.coordinates.lng}`;
-
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/65 backdrop-blur-xs animate-in fade-in duration-200"
       onClick={onClose}
     >
@@ -79,10 +103,17 @@ export const PharmacyDetailsModal: React.FC<PharmacyDetailsModalProps> = ({
                 <span>{pharmacy.isOpenNow ? (pharmacy.is24Hours ? 'Open 24/7' : 'Open Now') : 'Closed'}</span>
               </span>
               <span className="text-white/40">·</span>
-              <span className="text-xs text-[#FCD34D] font-extrabold flex items-center gap-1">
-                <Star className="w-3.5 h-3.5 fill-[#FCD34D]" />
-                <span>{pharmacy.rating}</span> ({pharmacy.reviewCount} reviews)
-              </span>
+              {pharmacy.reviewCount > 0 ? (
+                <span className="text-xs text-[#FCD34D] font-extrabold flex items-center gap-1">
+                  <Star className="w-3.5 h-3.5 fill-[#FCD34D]" />
+                  <span>{pharmacy.rating.toFixed(1)}</span> ({pharmacy.reviewCount} reviews)
+                </span>
+              ) : (
+                <span className="text-xs text-[#A7F3D0] font-extrabold flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Registered pharmacy
+                </span>
+              )}
             </div>
 
             <h2 className="text-xl sm:text-2xl font-extrabold text-white leading-tight drop-shadow-sm">
@@ -96,17 +127,17 @@ export const PharmacyDetailsModal: React.FC<PharmacyDetailsModalProps> = ({
 
         {/* Modal Scrollable Body */}
         <div className="overflow-y-auto p-5 sm:p-6 space-y-6">
-          
+
           {/* Key Facts Strip */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="p-3.5 rounded-2xl bg-[#EBF7F2] dark:bg-[#132A21] border border-[#087F5B]/20 text-xs">
-              <span className="text-[#087F5B] dark:text-[#34D399] font-bold block mb-1">Approx. Distance</span>
+              <span className="text-[#087F5B] dark:text-[#34D399] font-bold block mb-1">Straight-line Distance</span>
               <div className="flex items-center gap-1 font-extrabold text-[#20332D] dark:text-[#E5F4EE] text-sm tabular-nums">
                 <Navigation className="w-4 h-4 text-[#087F5B] dark:text-[#34D399]" />
                 <span>{formatDistance(pharmacy.distanceKm)}</span>
               </div>
               <span className="text-[11px] text-[#20332D]/70 dark:text-[#E5F4EE]/70 mt-1 block font-medium">
-                {estimateTravelTime(pharmacy.distanceKm)}
+                Geometric distance from your selected location, not a driving distance.
               </span>
             </div>
 
@@ -148,15 +179,20 @@ export const PharmacyDetailsModal: React.FC<PharmacyDetailsModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <a
-                href={directionsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#EBF7FA] dark:bg-[#142A33] hover:bg-[#CFFAFE] text-[#087E9B] dark:text-[#38BDF8] border border-[#087E9B]/30 rounded-xl font-bold transition-all shadow-2xs"
+              <button
+                type="button"
+                onClick={() => void handleDirections()}
+                disabled={isOpeningDirections}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#EBF7FA] dark:bg-[#142A33] hover:bg-[#CFFAFE] text-[#087E9B] dark:text-[#38BDF8] border border-[#087E9B]/30 rounded-xl font-bold transition-all shadow-2xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Open Google Maps directions to this pharmacy's saved pin"
               >
-                <Navigation className="w-3.5 h-3.5" />
+                {isOpeningDirections ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Navigation className="w-3.5 h-3.5" />
+                )}
                 <span>Get Directions</span>
-              </a>
+              </button>
 
               <button
                 onClick={() => {
@@ -170,6 +206,13 @@ export const PharmacyDetailsModal: React.FC<PharmacyDetailsModalProps> = ({
               </button>
             </div>
           </div>
+
+          {directionsError && (
+            <div className="flex items-start gap-2 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-[11px] font-semibold text-rose-700 dark:text-rose-300">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{directionsError}</span>
+            </div>
+          )}
 
           {/* Services Offered */}
           <div>
@@ -203,37 +246,70 @@ export const PharmacyDetailsModal: React.FC<PharmacyDetailsModalProps> = ({
             </div>
 
             <div className="divide-y divide-emerald-900/5 dark:divide-[#224538] border border-emerald-900/10 dark:border-[#224538] rounded-3xl overflow-hidden bg-white dark:bg-[#11231D] text-xs">
-              {pharmacy.sampleMedicines.map((med) => (
-                <div key={med.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-[#F1FAF6] dark:hover:bg-[#162C24] transition-colors">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-[#20332D] dark:text-[#E5F4EE] text-sm">{med.name}</span>
-                      <span className="text-slate-300 dark:text-slate-600">·</span>
-                      <span className="text-[#20332D]/70 dark:text-[#E5F4EE]/70 font-semibold">{med.dosage}</span>
-                    </div>
-                    <div className="text-[11px] text-[#20332D]/50 dark:text-[#E5F4EE]/50 mt-0.5 flex flex-wrap gap-x-2">
-                      {med.genericName && <span>Generic: {med.genericName}</span>}
-                      <span>Category: {med.category}</span>
-                      <span className="text-[#087F5B] dark:text-[#34D399] font-medium">Updated: {med.lastUpdated || 'Today'}</span>
-                    </div>
-                  </div>
+              {[...pharmacy.sampleMedicines]
+                .sort((a, b) => Number(b.inStock) - Number(a.inStock) || a.name.localeCompare(b.name))
+                .map((med) => {
+                  const expired = med.isExpired === true;
+                  const lowStock = !expired && med.availabilityStatus === 'low_stock';
+                  const available = !expired && med.stockQuantity > 0 && med.inStock;
+                  return (
+                    <div key={med.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-[#F1FAF6] dark:hover:bg-[#162C24] transition-colors">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-extrabold text-[#20332D] dark:text-[#E5F4EE] text-sm">{med.name}</span>
+                          <span className="text-slate-300 dark:text-slate-600">·</span>
+                          <span className="text-[#20332D]/70 dark:text-[#E5F4EE]/70 font-semibold">
+                            {[med.strength, med.dosageForm].filter(Boolean).join(' ') || med.dosage}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-[#20332D]/50 dark:text-[#E5F4EE]/50 mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                          {(med.brand || med.genericName) && <span>Brand: {med.brand || med.genericName}</span>}
+                          <span>Category: {med.category}</span>
+                          {med.expiryDate && (
+                            <span className={expired ? 'text-rose-600 dark:text-rose-400 font-bold' : ''}>
+                              Expiry: {formatExpiryDate(med.expiryDate)}
+                            </span>
+                          )}
+                          <span className="text-[#087F5B] dark:text-[#34D399] font-medium">
+                            Last reported: {med.lastUpdatedAt ? formatRelativeTime(med.lastUpdatedAt) : med.lastUpdated || 'Not recorded'}
+                          </span>
+                        </div>
+                      </div>
 
-                  <div className="text-right shrink-0">
-                    <div className="flex items-center gap-1.5 justify-end mb-1">
-                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                        med.inStock
-                          ? 'bg-[#D1FAE5] dark:bg-[#064E3B] text-[#065F46] dark:text-[#6EE7B7]'
-                          : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
-                      }`}>
-                        {med.inStock ? `${med.stockQuantity} units available` : 'Out of stock'}
-                      </span>
+                      <div className="text-right shrink-0">
+                        <div className="flex items-center gap-1.5 justify-end mb-1">
+                          <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                            expired
+                              ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
+                              : available
+                                ? lowStock
+                                  ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300'
+                                  : 'bg-[#D1FAE5] dark:bg-[#064E3B] text-[#065F46] dark:text-[#6EE7B7]'
+                                : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
+                          }`}>
+                            {expired
+                              ? 'Expired · not available'
+                              : available
+                                ? lowStock
+                                  ? `Low stock · ${med.stockQuantity} units`
+                                  : `${med.stockQuantity} units available`
+                                : 'Out of stock'}
+                          </span>
+                        </div>
+                        {med.samplePrice && (
+                          <span className="text-[11px] font-bold text-[#20332D] dark:text-[#E5F4EE] tabular-nums">
+                            {med.samplePrice}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-[11px] font-bold text-[#20332D] dark:text-[#E5F4EE] tabular-nums">
-                      {med.samplePrice}
-                    </span>
-                  </div>
+                  );
+                })}
+              {pharmacy.sampleMedicines.length === 0 && (
+                <div className="p-6 text-center text-xs text-[#20332D]/60 dark:text-[#E5F4EE]/60 font-medium">
+                  This pharmacy has not reported any medicine inventory yet.
                 </div>
-              ))}
+              )}
             </div>
           </div>
 

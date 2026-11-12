@@ -3,7 +3,7 @@ import { Search, Clock, ShieldCheck, HeartPulse, Compass, CheckCircle2 } from 'l
 
 export const AboutSection: React.FC = () => {
   return (
-    <section id="about" className="py-16 md:py-24 bg-[#FDFBF7] dark:bg-[#0C1814] border-t border-emerald-900/10 dark:border-[#1F3D32] transition-colors duration-200">
+    <section id="about" className="py-16 md:py-24 bg-transparent dark:bg-[#0C1814] border-t border-emerald-900/10 dark:border-[#1F3D32] transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Top Header */}

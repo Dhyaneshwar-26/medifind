@@ -55,7 +55,7 @@ export const Hero: React.FC<HeroProps> = ({
   return (
     <section 
       id="home" 
-      className="relative pt-10 pb-16 md:pt-16 md:pb-22 overflow-hidden bg-gradient-to-br from-[#087F5B]/10 via-[#087E9B]/10 to-[#F1FAF6] dark:from-[#0C1A15] dark:via-[#11231D] dark:to-[#0C1814] border-b border-emerald-900/10 dark:border-[#1F3D32] transition-colors duration-200"
+      className="relative pt-10 pb-16 md:pt-16 md:pb-22 overflow-hidden bg-gradient-to-br from-[#93C5FD]/30 via-[#C4B5FD]/20 to-[#FBCFE8]/25 dark:from-[#0C1A15] dark:via-[#11231D] dark:to-[#0C1814] border-b border-emerald-900/10 dark:border-[#1F3D32] transition-colors duration-200"
     >
       {/* Decorative background shapes */}
       <div 

@@ -65,7 +65,24 @@ export interface InventoryRow {
   stock_quantity: number;
   availability_status: AvailabilityStatus;
   price: string | null;
+  expiry_date: string | null;
+  low_stock_threshold: number;
+  last_change_source: 'manual' | 'csv_import' | 'system';
   last_updated: string;
+  created_at: string;
+}
+
+export interface InventoryHistoryRow {
+  id: string;
+  inventory_id: string;
+  pharmacy_id: string;
+  medicine_id: string;
+  old_quantity: number | null;
+  new_quantity: number | null;
+  old_expiry_date: string | null;
+  new_expiry_date: string | null;
+  change_source: 'manual' | 'csv_import' | 'system';
+  changed_by: string | null;
   created_at: string;
 }
 

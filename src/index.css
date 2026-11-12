@@ -17,10 +17,49 @@ html {
   scroll-behavior: smooth;
 }
 
-/* Leaflet container fixes */
+html,
+body {
+  font-family: var(--font-sans);
+}
+
+html.dark body {
+  background-color: #0c1814;
+}
+
+/*
+ * Light-mode only "medical glass" treatment.
+ * Soft blue / lavender / pink gradient with frosted white cards.
+ * Every rule here is scoped to `html:not(.dark)` so the existing dark
+ * palette is never altered.
+ */
+html:not(.dark) body {
+  background-color: #f4f7ff;
+  background-image:
+    radial-gradient(900px 620px at 8% -6%, rgba(147, 197, 253, 0.45), transparent 62%),
+    radial-gradient(820px 560px at 92% 4%, rgba(196, 181, 253, 0.38), transparent 60%),
+    radial-gradient(760px 620px at 50% 112%, rgba(251, 207, 232, 0.42), transparent 62%),
+    linear-gradient(135deg, #eef4ff 0%, #f6f2ff 48%, #fff2f8 100%);
+  background-attachment: fixed;
+}
+
+html:not(.dark) [class~="bg-white"][class~="rounded-3xl"],
+html:not(.dark) [class~="bg-white"][class~="rounded-2xl"] {
+  background-color: rgba(255, 255, 255, 0.74);
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
+  backdrop-filter: blur(14px) saturate(135%);
+}
+
+html:not(.dark) [class~="bg-white"][class~="rounded-3xl"]:hover,
+html:not(.dark) [class~="bg-white"][class~="rounded-2xl"]:hover {
+  background-color: rgba(255, 255, 255, 0.86);
+}
+
+/* Leaflet container fixes.
+ * IMPORTANT: do not force width/height here. Leaflet adds this class to the
+ * same element that carries the app's utility classes, and an unlayered
+ * `height: 100%` would override Tailwind's explicit map height, collapsing the
+ * picker to 0px when its parent has no fixed height. */
 .leaflet-container {
-  width: 100%;
-  height: 100%;
   border-radius: 1.5rem;
   z-index: 10;
   font-family: inherit;

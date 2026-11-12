@@ -88,7 +88,7 @@ export const HealthcareEssentials: React.FC<HealthcareEssentialsProps> = ({
   ];
 
   return (
-    <section className="py-14 md:py-18 bg-[#F1FAF6] dark:bg-[#0C1814] border-b border-emerald-900/10 dark:border-[#1F3D32] transition-colors duration-200">
+    <section className="py-14 md:py-18 bg-transparent dark:bg-[#0C1814] border-b border-emerald-900/10 dark:border-[#1F3D32] transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Section Header */}

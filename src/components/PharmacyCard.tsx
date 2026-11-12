@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   MapPin, Clock, Phone, Navigation, ArrowRight, CheckCircle2, 
-  Star, HeartHandshake, ShieldCheck, Pill, Stethoscope, Droplets, Truck, ExternalLink
+  Star, HeartHandshake, ShieldCheck, Pill, Stethoscope, Droplets, Truck, AlertCircle, Loader2
 } from 'lucide-react';
 import { Pharmacy } from '../types/pharmacy';
-import { formatDistance, estimateTravelTime } from '../utils/distance';
+import { formatDistance } from '../utils/distance';
+import { openDirectionsToCoordinates } from '../utils/directions';
+import { formatExpiryDate, formatRelativeTime } from '../utils/format';
 
 interface PharmacyCardProps {
   pharmacy: Pharmacy;
@@ -25,11 +27,15 @@ export const PharmacyCard: React.FC<PharmacyCardProps> = ({
   const queryLower = searchQuery.trim().toLowerCase();
   const matchedMedicines = queryLower
     ? pharmacy.sampleMedicines.filter((m) =>
-        m.name.toLowerCase().includes(queryLower) ||
-        (m.genericName && m.genericName.toLowerCase().includes(queryLower)) ||
-        m.category.toLowerCase().includes(queryLower)
+        [m.name, m.genericName, m.brand, m.category, m.strength, m.dosageForm]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => value.toLowerCase().includes(queryLower))
       )
     : [];
+
+  const availableMedicines = pharmacy.sampleMedicines.filter(
+    (m) => m.inStock && !m.isExpired && m.stockQuantity > 0
+  );
 
   // Helper icon for services
   const getServiceIcon = (service: string) => {
@@ -41,8 +47,23 @@ export const PharmacyCard: React.FC<PharmacyCardProps> = ({
     return <ShieldCheck className="w-3.5 h-3.5" />;
   };
 
-  // Google Maps directions URL
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${pharmacy.coordinates.lat},${pharmacy.coordinates.lng}`;
+  // Google Maps directions always target this pharmacy's saved coordinates.
+  const [directionsError, setDirectionsError] = useState<string | null>(null);
+  const [isOpeningDirections, setIsOpeningDirections] = useState(false);
+
+  const handleDirections = async () => {
+    if (isOpeningDirections) return;
+    setDirectionsError(null);
+    setIsOpeningDirections(true);
+    try {
+      const result = await openDirectionsToCoordinates(pharmacy.coordinates);
+      if (!result.ok) {
+        setDirectionsError(result.error || 'Could not open directions for this pharmacy.');
+      }
+    } finally {
+      setIsOpeningDirections(false);
+    }
+  };
 
   return (
     <article
@@ -97,11 +118,20 @@ export const PharmacyCard: React.FC<PharmacyCardProps> = ({
         {/* Bottom Title on Image */}
         <div className="absolute bottom-3 left-3 right-3 text-white">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[#FCD34D] flex items-center gap-1 text-xs font-extrabold">
-              <Star className="w-3.5 h-3.5 fill-[#FCD34D]" />
-              <span>{pharmacy.rating}</span>
-            </span>
-            <span className="text-white/70 text-xs font-medium">({pharmacy.reviewCount} reviews)</span>
+            {pharmacy.reviewCount > 0 ? (
+              <>
+                <span className="text-[#FCD34D] flex items-center gap-1 text-xs font-extrabold">
+                  <Star className="w-3.5 h-3.5 fill-[#FCD34D]" />
+                  <span>{pharmacy.rating.toFixed(1)}</span>
+                </span>
+                <span className="text-white/70 text-xs font-medium">({pharmacy.reviewCount} reviews)</span>
+              </>
+            ) : (
+              <span className="text-[#A7F3D0] text-xs font-extrabold flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Registered pharmacy
+              </span>
+            )}
             <span className="text-white/40">·</span>
             <span className="text-xs text-[#A7F3D0] font-bold">{pharmacy.area}</span>
           </div>
@@ -137,12 +167,24 @@ export const PharmacyCard: React.FC<PharmacyCardProps> = ({
           </div>
         </div>
 
-        {/* Travel Time Estimate & Stock Audit Info */}
-        <div className="text-[11px] text-[#20332D]/65 dark:text-[#E5F4EE]/65 flex items-center justify-between px-1">
-          <span>Travel estimate:</span>
-          <span className="font-extrabold text-[#20332D] dark:text-[#E5F4EE] bg-[#F1FAF6] dark:bg-[#11231D] px-2.5 py-0.5 rounded-lg border border-emerald-900/10 dark:border-[#224538]">
-            {estimateTravelTime(pharmacy.distanceKm)}
-          </span>
+        {/* Straight-line distance and stock audit info (no fabricated travel times) */}
+        <div className="text-[11px] text-[#20332D]/65 dark:text-[#E5F4EE]/65 space-y-1.5 px-1">
+          <div className="flex items-center justify-between">
+            <span>Straight-line distance:</span>
+            <span
+              className="font-extrabold text-[#20332D] dark:text-[#E5F4EE] bg-[#F1FAF6] dark:bg-[#11231D] px-2.5 py-0.5 rounded-lg border border-emerald-900/10 dark:border-[#224538]"
+              title="Geometric distance from your selected location, not a driving distance"
+            >
+              {formatDistance(pharmacy.distanceKm)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate">
+              <span className="font-extrabold text-[#087F5B] dark:text-[#34D399]">{availableMedicines.length}</span>{' '}
+              medicine{availableMedicines.length === 1 ? '' : 's'} reported available
+            </span>
+            <span className="shrink-0">Updated: {pharmacy.lastStockAudit || 'No stock updates yet'}</span>
+          </div>
         </div>
 
         {/* Matched Medicine Highlight with Live Stock & Last Updated Time */}
@@ -159,31 +201,55 @@ export const PharmacyCard: React.FC<PharmacyCardProps> = ({
             </div>
 
             <div className="space-y-1.5">
-              {matchedMedicines.map((m) => (
-                <div
-                  key={m.id}
-                  className="p-2 bg-white dark:bg-[#162C24] rounded-xl border border-[#087F5B]/20 flex items-center justify-between gap-2"
-                >
-                  <div>
-                    <span className="font-extrabold text-[#087F5B] dark:text-[#34D399] block">
-                      {m.name} <span className="text-[#20332D]/50 dark:text-[#E5F4EE]/50 font-normal text-[11px]">({m.dosage})</span>
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      Last updated: {m.lastUpdated || 'Today'}
-                    </span>
-                  </div>
+              {matchedMedicines.map((m) => {
+                const expired = m.isExpired === true;
+                const lowStock = !expired && m.availabilityStatus === 'low_stock';
+                const available = !expired && m.stockQuantity > 0 && m.inStock;
+                return (
+                  <div
+                    key={m.id}
+                    className="p-2 bg-white dark:bg-[#162C24] rounded-xl border border-[#087F5B]/20 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-extrabold text-[#087F5B] dark:text-[#34D399] block truncate">
+                        {m.name}{' '}
+                        <span className="text-[#20332D]/50 dark:text-[#E5F4EE]/50 font-normal text-[11px]">
+                          ({[m.strength, m.dosageForm].filter(Boolean).join(' ') || m.dosage})
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
+                        {m.brand || m.genericName ? `${m.brand || m.genericName} · ` : ''}
+                        Last reported: {m.lastUpdatedAt ? formatRelativeTime(m.lastUpdatedAt) : m.lastUpdated || 'Not recorded'}
+                      </span>
+                      {m.expiryDate && (
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                          Expiry: {formatExpiryDate(m.expiryDate)}
+                        </span>
+                      )}
+                    </div>
 
-                  <div className="text-right shrink-0">
-                    <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md ${
-                      m.inStock
-                        ? 'bg-[#D1FAE5] text-[#065F46] dark:bg-[#064E3B] dark:text-[#6EE7B7]'
-                        : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
-                    }`}>
-                      {m.inStock ? `${m.stockQuantity} in stock` : 'Out of stock'}
-                    </span>
+                    <div className="text-right shrink-0">
+                      <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md ${
+                        expired
+                          ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                          : available
+                            ? lowStock
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                              : 'bg-[#D1FAE5] text-[#065F46] dark:bg-[#064E3B] dark:text-[#6EE7B7]'
+                            : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                      }`}>
+                        {expired
+                          ? 'Expired'
+                          : available
+                            ? lowStock
+                              ? `Low stock · ${m.stockQuantity}`
+                              : `${m.stockQuantity} in stock`
+                            : 'Out of stock'}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -218,17 +284,21 @@ export const PharmacyCard: React.FC<PharmacyCardProps> = ({
 
         {/* Card Footer Actions: Directions, Map View & Details */}
         <div className="mt-auto pt-3 border-t border-emerald-900/10 dark:border-[#224538] grid grid-cols-3 gap-2">
-          {/* Directions Link */}
-          <a
-            href={directionsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1 px-2.5 py-2.5 text-xs font-bold text-[#087E9B] dark:text-[#38BDF8] bg-[#EBF7FA] dark:bg-[#142A33] hover:bg-[#CFFAFE] border border-[#087E9B]/25 rounded-2xl transition-all shadow-2xs hover:scale-[1.02] text-center"
-            title="Open turn-by-turn directions in Google Maps"
+          {/* Directions button — opens this pharmacy's saved coordinates */}
+          <button
+            type="button"
+            onClick={() => void handleDirections()}
+            disabled={isOpeningDirections}
+            className="flex items-center justify-center gap-1 px-2.5 py-2.5 text-xs font-bold text-[#087E9B] dark:text-[#38BDF8] bg-[#EBF7FA] dark:bg-[#142A33] hover:bg-[#CFFAFE] border border-[#087E9B]/25 rounded-2xl transition-all shadow-2xs hover:scale-[1.02] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            title="Open Google Maps directions to this pharmacy's saved pin"
           >
-            <Navigation className="w-3.5 h-3.5 shrink-0" />
+            {isOpeningDirections ? (
+              <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
+            ) : (
+              <Navigation className="w-3.5 h-3.5 shrink-0" />
+            )}
             <span className="truncate">Directions</span>
-          </a>
+          </button>
 
           {/* View on Map */}
           <button
@@ -248,6 +318,13 @@ export const PharmacyCard: React.FC<PharmacyCardProps> = ({
             <ArrowRight className="w-3.5 h-3.5 shrink-0" />
           </button>
         </div>
+
+        {directionsError && (
+          <div className="flex items-start gap-1.5 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-[10px] font-semibold text-rose-700 dark:text-rose-300">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{directionsError}</span>
+          </div>
+        )}
 
       </div>
     </article>

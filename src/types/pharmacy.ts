@@ -8,6 +8,8 @@ export interface MedicineItem {
   medicineId?: string;
   name: string;
   genericName?: string;
+  /** Brand name captured through CSV import / catalogue metadata. */
+  brand?: string;
   category: string;
   dosage: string;
   strength?: string;
@@ -18,8 +20,17 @@ export interface MedicineItem {
   stockQuantity: number;
   inStock: boolean;
   availabilityStatus?: MedicineAvailability;
+  /** Configurable low-stock threshold for this pharmacy/medicine pair. */
+  lowStockThreshold?: number;
+  /** Optional ISO date (YYYY-MM-DD). */
+  expiryDate?: string | null;
+  isExpired?: boolean;
+  isExpiringSoon?: boolean;
+  /** ISO timestamp reported by the pharmacy, if available. */
+  lastUpdatedAt?: string;
   lastUpdated: string;
   isSample?: boolean;
+  createdAt?: string;
 }
 
 export interface Pharmacy {
@@ -90,6 +101,8 @@ export interface InventoryMedicineInput {
   defaultPrice: string;
   stockQuantity: number;
   price?: string;
+  lowStockThreshold?: number;
+  expiryDate?: string | null;
 }
 
 export interface PharmacyRegistrationInput {
@@ -131,10 +144,27 @@ export interface PharmacyProfileUpdateInput {
 export interface PharmacySearchParams {
   query: string;
   district?: string;
+  brand?: string;
+  strength?: string;
+  dosageForm?: string;
+  availability?: 'all' | 'in_stock' | 'low_stock' | 'out_of_stock';
   inStockOnly?: boolean;
+  lowStockOnly?: boolean;
+  includeExpired?: boolean;
+}
+
+export interface PharmacyAdvancedFilters {
+  district: string;
+  maxDistanceKm: number;
+  brand: string;
+  strength: string;
+  dosageForm: string;
+  availability: 'all' | MedicineAvailability;
+  lowStockOnly: boolean;
 }
 
 export type PharmacyFilter = 'all' | 'open' | 'nearest' | '24hours';
-export type SortOption = 'distance' | 'rating' | 'name';
+export type PharmacyAvailabilityFilter = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock';
+export type SortOption = 'distance' | 'rating' | 'name' | 'recent' | 'available';
 export type ActiveView = 'customer' | 'pharmacy-portal';
-export type PharmacyPortalTab = 'dashboard' | 'login' | 'register';
+export type PharmacyPortalTab = 'dashboard' | 'login' | 'register' | 'profile';

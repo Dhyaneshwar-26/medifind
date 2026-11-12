@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Mail, Phone, MapPin, Send, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, Mail, Phone, MapPin, Send, CheckCircle2, Loader2 } from 'lucide-react';
+import { sendContactMessage } from '../services/contactService';
 
 export const ContactSection: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -8,27 +9,54 @@ export const ContactSection: React.FC = () => {
     subject: '',
     message: '',
   });
+  /** Bot bait. Kept off-screen so real visitors never fill it in. */
+  const [company, setCompany] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.email || !formData.message) return;
+    // Guard against double clicks / Enter pressed twice while a send is running.
+    if (isSubmitting) return;
+
+    setError(null);
+    if (!formData.name.trim() || !formData.email.trim() || !formData.message.trim()) {
+      setError('Please fill in your name, email address and message.');
+      return;
+    }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      await sendContactMessage({
+        name: formData.name,
+        email: formData.email,
+        subject: formData.subject,
+        message: formData.message,
+        company,
+      });
+      // Only reached when the Edge Function confirms Resend accepted the email.
       setSubmitted(true);
-    }, 600);
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Your message could not be sent right now. Please try again in a few minutes.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleReset = () => {
     setFormData({ name: '', email: '', subject: '', message: '' });
+    setCompany('');
+    setError(null);
     setSubmitted(false);
   };
 
   return (
-    <section id="contact" className="py-16 md:py-22 bg-[#F1FAF6] dark:bg-[#0C1814] border-t border-emerald-900/10 dark:border-[#1F3D32] transition-colors duration-200">
+    <section id="contact" className="py-16 md:py-22 bg-transparent dark:bg-[#0C1814] border-t border-emerald-900/10 dark:border-[#1F3D32] transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         <div className="max-w-3xl mx-auto text-center mb-14">
@@ -89,9 +117,10 @@ export const ContactSection: React.FC = () => {
                 <div className="w-14 h-14 rounded-2xl bg-[#D1FAE5] dark:bg-[#064E3B] text-[#087F5B] dark:text-[#34D399] flex items-center justify-center mx-auto shadow-xs">
                   <CheckCircle2 className="w-7 h-7" />
                 </div>
-                <h4 className="text-lg font-bold text-[#20332D] dark:text-[#E5F4EE]">Message Received</h4>
+                <h4 className="text-lg font-bold text-[#20332D] dark:text-[#E5F4EE]">Message Sent</h4>
                 <p className="text-xs text-[#20332D]/70 dark:text-[#E5F4EE]/70 max-w-sm mx-auto leading-relaxed">
-                  Thank you for contacting MediFind. Your message has been received and our team will get back to you shortly.
+                  Your message has been sent to the MediFind support inbox. Our team will reply
+                  to {formData.email} shortly.
                 </p>
                 <div className="pt-3">
                   <button
@@ -104,6 +133,19 @@ export const ContactSection: React.FC = () => {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Honeypot: hidden from people, tempting to bots. */}
+                <div className="hidden" aria-hidden="true">
+                  <label htmlFor="contact-company">Company</label>
+                  <input
+                    id="contact-company"
+                    type="text"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                  />
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-[#20332D] dark:text-[#E5F4EE] mb-1.5">
@@ -161,13 +203,27 @@ export const ContactSection: React.FC = () => {
                   />
                 </div>
 
+                {error && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2.5 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-[11px] font-semibold text-rose-700 dark:text-rose-300"
+                  >
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-3 px-4 bg-[#087F5B] hover:bg-[#076B4D] active:bg-[#05573E] text-white text-xs font-extrabold rounded-2xl shadow-md shadow-[#087F5B]/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99]"
+                  className="w-full py-3 px-4 bg-[#087F5B] hover:bg-[#076B4D] active:bg-[#05573E] text-white text-xs font-extrabold rounded-2xl shadow-md shadow-[#087F5B]/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99]"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{isSubmitting ? 'Sending...' : 'Submit Message'}</span>
+                  {isSubmitting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isSubmitting ? 'Sending…' : 'Submit Message'}</span>
                 </button>
               </form>
             )}

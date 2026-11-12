@@ -11,7 +11,7 @@ import type {
   PharmacyProfileUpdateInput,
   PharmacyRegistrationInput,
 } from '../types/pharmacy';
-import { availabilityFromQuantity, formatRelativeTime, isInStock, safeNumber } from '../utils/format';
+import { availabilityFromQuantity, formatRelativeTime, isExpiredDate, isExpiringSoonDate, isInStock, safeNumber } from '../utils/format';
 
 const DEFAULT_PHARMACY_IMAGE = '/src/assets/images/pharmacy_interior_modern_1794119274302.jpg';
 
@@ -46,6 +46,9 @@ const PHARMACY_SELECT = `
     stock_quantity,
     availability_status,
     price,
+    expiry_date,
+    low_stock_threshold,
+    last_change_source,
     last_updated,
     created_at,
     medicines (
@@ -65,6 +68,56 @@ const PHARMACY_SELECT = `
   )
 `;
 
+/**
+ * Same shape as PHARMACY_SELECT but without the columns added by migration
+ * 0006. Used as a read-only fallback so the app keeps working against a
+ * database where 0006 has not been applied yet.
+ */
+const PHARMACY_SELECT_LEGACY = PHARMACY_SELECT.replace(
+  /\s*expiry_date,\s*low_stock_threshold,\s*last_change_source,/,
+  ''
+);
+
+interface SelectResult {
+  data: unknown;
+  error: { message?: string; details?: string; code?: string } | null;
+}
+
+/**
+ * `null` = not yet probed, `true` = migration 0006 columns exist,
+ * `false` = fall back to the legacy column set for this browser session.
+ */
+let inventoryExtensionsAvailable: boolean | null = null;
+
+function isMissingInventoryExtension(error: SelectResult['error']): boolean {
+  if (!error) return false;
+  if (error.code === '42703' || error.code === 'PGRST204') return true;
+  const text = `${error.message ?? ''} ${error.details ?? ''}`;
+  return (
+    /expiry_date|low_stock_threshold|last_change_source/.test(text) &&
+    /column|schema|does not exist|not found/i.test(text)
+  );
+}
+
+async function runWithLegacySelect(
+  run: (select: string) => PromiseLike<SelectResult>
+): Promise<SelectResult> {
+  if (inventoryExtensionsAvailable === false) {
+    return run(PHARMACY_SELECT_LEGACY);
+  }
+
+  const full = await run(PHARMACY_SELECT);
+  if (!full.error) {
+    inventoryExtensionsAvailable = true;
+    return full;
+  }
+  if (!isMissingInventoryExtension(full.error)) return full;
+
+  inventoryExtensionsAvailable = false;
+  return run(PHARMACY_SELECT_LEGACY);
+}
+
+
 function unwrapMedicine(value: InventoryWithMedicineRow['medicines']): MedicineRow | null {
   if (!value) return null;
   if (Array.isArray(value)) return value[0] ?? null;
@@ -76,8 +129,10 @@ export function mapInventoryRow(row: InventoryWithMedicineRow): MedicineItem | n
   if (!medicine) return null;
 
   const quantity = safeNumber(row.stock_quantity);
-  const status = row.availability_status ?? availabilityFromQuantity(quantity);
-  const inStock = isInStock(quantity, status);
+  const threshold = safeNumber(row.low_stock_threshold, 10);
+  const status = availabilityFromQuantity(quantity, threshold);
+  const expired = isExpiredDate(row.expiry_date);
+  const inStock = !expired && isInStock(quantity, status);
   const strength = medicine.strength || '';
   const dosageForm = medicine.dosage_form || '';
   const price = row.price || medicine.default_price || '';
@@ -88,6 +143,7 @@ export function mapInventoryRow(row: InventoryWithMedicineRow): MedicineItem | n
     medicineId: medicine.id,
     name: medicine.name,
     genericName: medicine.generic_name || undefined,
+    brand: medicine.generic_name || undefined,
     category: medicine.category,
     dosage: [strength, dosageForm].filter(Boolean).join(' ') || 'Standard dose',
     strength: strength || undefined,
@@ -97,9 +153,15 @@ export function mapInventoryRow(row: InventoryWithMedicineRow): MedicineItem | n
     price: price || undefined,
     stockQuantity: quantity,
     inStock,
-    availabilityStatus: status,
+    availabilityStatus: expired ? 'out_of_stock' : status,
+    lowStockThreshold: threshold,
+    expiryDate: row.expiry_date,
+    isExpired: expired,
+    isExpiringSoon: isExpiringSoonDate(row.expiry_date),
+    lastUpdatedAt: row.last_updated,
     lastUpdated: formatRelativeTime(row.last_updated),
     isSample: Boolean(medicine.is_sample),
+    createdAt: row.created_at,
   };
 }
 
@@ -150,11 +212,13 @@ export function mapPharmacyRow(row: PharmacyWithInventoryRow): Pharmacy {
  */
 export async function fetchApprovedPharmacies(): Promise<Pharmacy[]> {
   const client = requireSupabase();
-  const { data, error } = await client
-    .from('pharmacies')
-    .select(PHARMACY_SELECT)
-    .eq('is_approved', true)
-    .order('name', { ascending: true });
+  const { data, error } = await runWithLegacySelect((select) =>
+    client
+      .from('pharmacies')
+      .select(select)
+      .eq('is_approved', true)
+      .order('name', { ascending: true })
+  );
 
   if (error) throw new Error(describeSupabaseError(error));
   return ((data ?? []) as unknown as PharmacyWithInventoryRow[]).map(mapPharmacyRow);
@@ -162,11 +226,9 @@ export async function fetchApprovedPharmacies(): Promise<Pharmacy[]> {
 
 export async function fetchMyPharmacy(ownerId: string): Promise<Pharmacy | null> {
   const client = requireSupabase();
-  const { data, error } = await client
-    .from('pharmacies')
-    .select(PHARMACY_SELECT)
-    .eq('owner_id', ownerId)
-    .maybeSingle();
+  const { data, error } = await runWithLegacySelect((select) =>
+    client.from('pharmacies').select(select).eq('owner_id', ownerId).maybeSingle()
+  );
 
   if (error) throw new Error(describeSupabaseError(error));
   if (!data) return null;
@@ -175,11 +237,9 @@ export async function fetchMyPharmacy(ownerId: string): Promise<Pharmacy | null>
 
 export async function fetchPharmacyById(pharmacyId: string): Promise<Pharmacy | null> {
   const client = requireSupabase();
-  const { data, error } = await client
-    .from('pharmacies')
-    .select(PHARMACY_SELECT)
-    .eq('id', pharmacyId)
-    .maybeSingle();
+  const { data, error } = await runWithLegacySelect((select) =>
+    client.from('pharmacies').select(select).eq('id', pharmacyId).maybeSingle()
+  );
 
   if (error) throw new Error(describeSupabaseError(error));
   if (!data) return null;
@@ -221,11 +281,13 @@ export async function createPharmacyForOwner(
   const { data, error } = await client
     .from('pharmacies')
     .insert(registrationToRow(ownerId, input))
-    .select(PHARMACY_SELECT)
+    .select('id')
     .single();
 
   if (error) throw new Error(describeSupabaseError(error));
-  return mapPharmacyRow(data as unknown as PharmacyWithInventoryRow);
+  const pharmacy = await fetchPharmacyById((data as { id: string }).id);
+  if (!pharmacy) throw new Error('The pharmacy was created but could not be reloaded.');
+  return pharmacy;
 }
 
 export async function updatePharmacyProfile(
@@ -253,9 +315,11 @@ export async function updatePharmacyProfile(
       updated_at: new Date().toISOString(),
     })
     .eq('id', pharmacyId)
-    .select(PHARMACY_SELECT)
+    .select('id')
     .single();
 
   if (error) throw new Error(describeSupabaseError(error));
-  return mapPharmacyRow(data as unknown as PharmacyWithInventoryRow);
+  const pharmacy = await fetchPharmacyById(pharmacyId);
+  if (!pharmacy) throw new Error('The pharmacy was updated but could not be reloaded.');
+  return pharmacy;
 }

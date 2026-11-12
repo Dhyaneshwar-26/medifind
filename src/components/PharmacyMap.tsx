@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import { Pharmacy, UserLocation } from '../types/pharmacy';
 import { LocateFixed, MapPin, Info } from 'lucide-react';
 import { formatDistance } from '../utils/distance';
+import { checkTamilNaduBoundary, isValidCoordinatePair } from '../utils/tamilNaduBoundary';
 
 interface PharmacyMapProps {
   pharmacies: Pharmacy[];
@@ -15,6 +16,32 @@ interface PharmacyMapProps {
 const isValidLatLng = (lat: unknown, lng: unknown): boolean => {
   return typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng);
 };
+
+/**
+ * A pharmacy may only be plotted when its saved coordinates are finite and
+ * inside the Tamil Nadu boundary. Invalid rows are skipped entirely instead of
+ * being plotted at a guessed location.
+ */
+const hasPlottableCoordinates = (
+  pharmacy: Pharmacy
+): pharmacy is Pharmacy & { coordinates: { lat: number; lng: number } } => {
+  const lat = Number(pharmacy?.coordinates?.lat);
+  const lng = Number(pharmacy?.coordinates?.lng);
+  if (!isValidCoordinatePair(lat, lng)) return false;
+  return checkTamilNaduBoundary(lat, lng).inside;
+};
+
+/** Escapes untrusted pharmacy text before it is injected as HTML markup. */
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+// Neutral centre of Tamil Nadu, used only as the initial map viewport.
+const TAMIL_NADU_CENTRE = { lat: 11.1271, lng: 78.6569 };
 
 export const PharmacyMap: React.FC<PharmacyMapProps> = ({
   pharmacies,
@@ -30,6 +57,12 @@ export const PharmacyMap: React.FC<PharmacyMapProps> = ({
   const markersMapRef = useRef<{ [key: string]: L.Marker }>({});
   const prevUserLocationRef = useRef<{ lat: number; lng: number } | null>(null);
 
+  // Only pharmacies with valid Tamil Nadu coordinates get a marker.
+  const plottablePharmacies = useMemo(
+    () => pharmacies.filter(hasPlottableCoordinates),
+    [pharmacies]
+  );
+
   // Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -37,10 +70,10 @@ export const PharmacyMap: React.FC<PharmacyMapProps> = ({
 
     const initialLat = isValidLatLng(userLocation?.lat, userLocation?.lng)
       ? userLocation.lat
-      : 13.0827;
+      : TAMIL_NADU_CENTRE.lat;
     const initialLng = isValidLatLng(userLocation?.lat, userLocation?.lng)
       ? userLocation.lng
-      : 80.2707;
+      : TAMIL_NADU_CENTRE.lng;
 
     const map = L.map(mapContainerRef.current, {
       center: [initialLat, initialLng],
@@ -161,7 +194,7 @@ export const PharmacyMap: React.FC<PharmacyMapProps> = ({
     markersGroup.clearLayers();
     markersMapRef.current = {};
 
-    pharmacies.forEach((pharmacy) => {
+    plottablePharmacies.forEach((pharmacy) => {
       if (!pharmacy?.coordinates || !isValidLatLng(pharmacy.coordinates.lat, pharmacy.coordinates.lng)) {
         return;
       }
@@ -221,13 +254,13 @@ export const PharmacyMap: React.FC<PharmacyMapProps> = ({
 
       popupContent.innerHTML = `
         <div style="font-weight: 800; color: #20332D; font-size: 13px; margin-bottom: 2px;">
-          ${pharmacy.name}
+          ${escapeHtml(pharmacy.name)}
         </div>
         <div style="color: #64748b; font-size: 11px; margin-bottom: 6px;">
-          ${pharmacy.area} · <span style="color: #087F5B; font-weight: 800;">${formatDistance(pharmacy.distanceKm)}</span>
+          ${escapeHtml(pharmacy.area)} · <span style="color: #087F5B; font-weight: 800;">${escapeHtml(formatDistance(pharmacy.distanceKm))}</span>
         </div>
         <div style="color: #334155; font-size: 11px; margin-bottom: 8px; line-height: 1.35;">
-          ${pharmacy.address}
+          ${escapeHtml(pharmacy.address)}
         </div>
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
           <span style="font-size: 11px; font-weight: 800; color: ${
@@ -235,7 +268,7 @@ export const PharmacyMap: React.FC<PharmacyMapProps> = ({
           };">
             ${isOpen ? (pharmacy.is24Hours ? '● Open 24/7' : '● Open Now') : '○ Closed'}
           </span>
-          <button id="popup-btn-${pharmacy.id}" style="
+          <button id="popup-btn-${escapeHtml(pharmacy.id)}" style="
             background: linear-gradient(135deg, #087F5B, #087E9B);
             color: #ffffff;
             border: none;
@@ -268,7 +301,7 @@ export const PharmacyMap: React.FC<PharmacyMapProps> = ({
       markersGroup.addLayer(marker);
       markersMapRef.current[pharmacy.id] = marker;
     });
-  }, [pharmacies, selectedPharmacyId, onSelectPharmacyFromMarker, onViewDetails]);
+  }, [plottablePharmacies, selectedPharmacyId, onSelectPharmacyFromMarker, onViewDetails]);
 
   // Center or open popup when selectedPharmacyId changes
   useEffect(() => {
@@ -324,7 +357,7 @@ export const PharmacyMap: React.FC<PharmacyMapProps> = ({
                 Interactive Tamil Nadu Map
               </span>
               <span className="text-[10px] font-extrabold text-[#087F5B] dark:text-[#34D399] bg-[#D1FAE5] dark:bg-[#064E3B] px-2 py-0.2 rounded-full border border-[#087F5B]/20">
-                {pharmacies.length} Pins
+                {plottablePharmacies.length} Pins
               </span>
             </div>
             <div className="text-[10px] text-[#20332D]/70 dark:text-[#E5F4EE]/70 font-medium truncate max-w-[190px]">

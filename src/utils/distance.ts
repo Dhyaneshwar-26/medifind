@@ -35,18 +35,6 @@ export function formatDistance(distanceKm: number | undefined): string {
   return `${distanceKm.toFixed(1)} km`;
 }
 
-export function estimateTravelTime(distanceKm: number | undefined): string {
-  if (distanceKm === undefined || isNaN(distanceKm)) {
-    return 'Approx. distance unavailable';
-  }
-  if (distanceKm <= 0.8) {
-    const mins = Math.max(3, Math.round((distanceKm / 4.5) * 60));
-    return `~${mins} min walk`;
-  }
-  const driveMins = Math.max(4, Math.round((distanceKm / 28) * 60));
-  return `~${driveMins} min drive`;
-}
-
 // Predefined prominent Chennai neighborhood coordinates for fallback selection
 export const CHENNAI_NEIGHBORHOODS = [
   { name: 'Central Chennai (General Hospital Rd)', lat: 13.0827, lng: 80.2707 },

@@ -17,12 +17,19 @@ import { ContactSection } from './components/ContactSection';
 import { Footer } from './components/Footer';
 
 import { INITIAL_TAMIL_NADU_CENTER } from './data/pharmacies';
-import { isInsideTamilNadu } from './data/tamilNadu';
-import { Pharmacy, UserLocation, PharmacyFilter, SortOption, ActiveView } from './types/pharmacy';
+import { checkTamilNaduBoundary } from './utils/tamilNaduBoundary';
+import {
+  Pharmacy,
+  UserLocation,
+  PharmacyFilter,
+  SortOption,
+  ActiveView,
+  PharmacyAdvancedFilters,
+} from './types/pharmacy';
 import { calculateDistanceKm } from './utils/distance';
 import { usePharmacyAuth } from './hooks/usePharmacyAuth';
 import { fetchApprovedPharmacies } from './services/pharmacyService';
-import { medicineMatchesQuery } from './services/searchService';
+import { filterPharmacies } from './services/searchService';
 import { describeSupabaseError } from './lib/supabase';
 import {
   List,
@@ -37,6 +44,16 @@ import {
   Database,
   Loader2,
 } from 'lucide-react';
+
+const DEFAULT_ADVANCED_FILTERS: PharmacyAdvancedFilters = {
+  district: 'all',
+  maxDistanceKm: 0,
+  brand: 'all',
+  strength: 'all',
+  dosageForm: 'all',
+  availability: 'all',
+  lowStockOnly: false,
+};
 
 export default function App() {
   // Theme state (Dark/Light mode)
@@ -119,7 +136,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<PharmacyFilter>('all');
   const [activeSort, setActiveSort] = useState<SortOption>('distance');
-  const [selectedDistrictFilter, setSelectedDistrictFilter] = useState<string>('all');
+  const [advancedFilters, setAdvancedFilters] = useState<PharmacyAdvancedFilters>(
+    DEFAULT_ADVANCED_FILTERS
+  );
 
   // 3. Selection & Modal state
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<string | null>(null);
@@ -156,7 +175,7 @@ export default function App() {
         }
 
         // Verify if coordinates are strictly within Tamil Nadu boundary
-        const inTamilNadu = isInsideTamilNadu(latitude, longitude);
+        const inTamilNadu = checkTamilNaduBoundary(latitude, longitude).inside;
 
         if (!inTamilNadu) {
           setUserLocation({
@@ -237,7 +256,7 @@ export default function App() {
           p.coordinates &&
           Number.isFinite(p.coordinates.lat) &&
           Number.isFinite(p.coordinates.lng) &&
-          isInsideTamilNadu(p.coordinates.lat, p.coordinates.lng)
+          checkTamilNaduBoundary(p.coordinates.lat, p.coordinates.lng).inside
       )
       .map((pharmacy) => {
         const distanceKm = calculateDistanceKm(
@@ -253,37 +272,71 @@ export default function App() {
       });
   }, [pharmacies, userLocation]);
 
-  // Filter & Sort pharmacies
-  const filteredAndSortedPharmacies = useMemo(() => {
-    let result = [...pharmaciesWithDistance];
+  // Filter options are derived from real registered inventory only.
+  const filterOptions = useMemo(() => {
+    const districts = new Set<string>();
+    const brands = new Set<string>();
+    const strengths = new Set<string>();
+    const dosageForms = new Set<string>();
 
-    // Medicine search query filter
-    const query = searchQuery.trim().toLowerCase();
-    if (query) {
-      result = result.filter((pharmacy) => {
-        const medMatch = pharmacy.sampleMedicines.some((medicine) =>
-          medicineMatchesQuery(medicine, query)
-        );
-        const nameMatch = pharmacy.name.toLowerCase().includes(query);
-        const areaMatch = pharmacy.area.toLowerCase().includes(query);
-        const districtMatch = pharmacy.district.toLowerCase().includes(query);
-        const addressMatch = pharmacy.address.toLowerCase().includes(query);
-        return medMatch || nameMatch || areaMatch || districtMatch || addressMatch;
+    pharmaciesWithDistance.forEach((pharmacy) => {
+      if (pharmacy.district) districts.add(pharmacy.district);
+      pharmacy.sampleMedicines.forEach((medicine) => {
+        const brand = medicine.brand || medicine.genericName;
+        if (brand) brands.add(brand);
+        if (medicine.strength) strengths.add(medicine.strength);
+        if (medicine.dosageForm) dosageForms.add(medicine.dosageForm);
       });
+    });
+
+    const sorted = (values: Set<string>) => Array.from(values).sort((a, b) => a.localeCompare(b));
+    return {
+      districts: sorted(districts),
+      brands: sorted(brands),
+      strengths: sorted(strengths),
+      dosageForms: sorted(dosageForms),
+    };
+  }, [pharmaciesWithDistance]);
+
+  // Filter & Sort pharmacies using the shared search service.
+  const filteredAndSortedPharmacies = useMemo(() => {
+    let result = filterPharmacies(pharmaciesWithDistance, {
+      query: searchQuery,
+      district: advancedFilters.district,
+      brand: advancedFilters.brand,
+      strength: advancedFilters.strength,
+      dosageForm: advancedFilters.dosageForm,
+      availability: advancedFilters.availability,
+      lowStockOnly: advancedFilters.lowStockOnly,
+    });
+
+    if (advancedFilters.maxDistanceKm > 0) {
+      result = result.filter(
+        (pharmacy) => (pharmacy.distanceKm ?? Infinity) <= advancedFilters.maxDistanceKm
+      );
     }
 
     // Secondary filters
     if (activeFilter === 'open') {
       result = result.filter((p) => p.isOpenNow);
-    } else if (activeFilter === 'nearest') {
-      result = result.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
     } else if (activeFilter === '24hours') {
       result = result.filter((p) => p.is24Hours);
     }
 
+    const latestUpdate = (pharmacy: Pharmacy) =>
+      pharmacy.sampleMedicines.reduce((latest, medicine) => {
+        const value = medicine.lastUpdatedAt ? new Date(medicine.lastUpdatedAt).getTime() : 0;
+        return Number.isFinite(value) && value > latest ? value : latest;
+      }, 0);
+
+    const availableCount = (pharmacy: Pharmacy) =>
+      pharmacy.sampleMedicines.filter(
+        (medicine) => medicine.inStock && !medicine.isExpired && medicine.stockQuantity > 0
+      ).length;
+
     // Sorting
     result.sort((a, b) => {
-      if (activeSort === 'distance') {
+      if (activeSort === 'distance' || activeFilter === 'nearest') {
         return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
       }
       if (activeSort === 'rating') {
@@ -292,11 +345,17 @@ export default function App() {
       if (activeSort === 'name') {
         return a.name.localeCompare(b.name);
       }
+      if (activeSort === 'recent') {
+        return latestUpdate(b) - latestUpdate(a);
+      }
+      if (activeSort === 'available') {
+        return availableCount(b) - availableCount(a);
+      }
       return 0;
     });
 
     return result;
-  }, [pharmaciesWithDistance, searchQuery, activeFilter, activeSort]);
+  }, [pharmaciesWithDistance, searchQuery, activeFilter, activeSort, advancedFilters]);
 
   // Handler when a pharmacy marker is clicked on the map
   const handleSelectPharmacyFromMarker = (pharmacy: Pharmacy) => {
@@ -344,8 +403,15 @@ export default function App() {
   const showDirectoryEmptyState =
     auth.configured && !isLoadingPharmacies && !pharmacyError && !hasRegisteredPharmacies;
 
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setAdvancedFilters(DEFAULT_ADVANCED_FILTERS);
+    setActiveFilter('all');
+    setActiveSort('distance');
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#F1FAF6] dark:bg-[#0C1814] text-[#20332D] dark:text-[#E5F4EE] font-sans selection:bg-[#087F5B]/20 selection:text-[#087F5B] transition-colors duration-200">
+    <div className="min-h-screen flex flex-col bg-transparent dark:bg-[#0C1814] text-[#20332D] dark:text-[#E5F4EE] font-sans selection:bg-[#087F5B]/20 selection:text-[#087F5B] transition-colors duration-200">
       
       {/* Top Navigation */}
       <Navbar
@@ -606,6 +672,10 @@ export default function App() {
                     onFilterChange={setActiveFilter}
                     activeSort={activeSort}
                     onSortChange={setActiveSort}
+                    advancedFilters={advancedFilters}
+                    onAdvancedFiltersChange={setAdvancedFilters}
+                    filterOptions={filterOptions}
+                    onResetFilters={handleResetFilters}
                     selectedPharmacyId={selectedPharmacyId}
                     onSelectPharmacyOnMap={handleSelectPharmacyOnMap}
                     onViewDetails={(pharmacy) => setDetailedPharmacy(pharmacy)}
